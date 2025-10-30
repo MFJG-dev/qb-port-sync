@@ -3,7 +3,7 @@ use anyhow::{anyhow, Context};
 use notify::{Config as NotifyConfig, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     time::Duration,
 };
 use tokio::{sync::mpsc, time};
@@ -80,10 +80,10 @@ where
 }
 
 fn create_watcher(
-    sender: mpsc::UnboundedSender<Result<Event, notify::Error>>,
+    sender: mpsc::UnboundedSender<notify::Result<Event>>,
 ) -> Result<RecommendedWatcher> {
-    let mut watcher = RecommendedWatcher::new(
-        move |res| {
+    let watcher = RecommendedWatcher::new(
+        move |res: notify::Result<Event>| {
             if sender.send(res).is_err() {
                 debug!("forwarded port watcher receiver dropped");
             }

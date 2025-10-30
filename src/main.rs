@@ -7,12 +7,12 @@ mod watch;
 use clap::{ArgAction, Parser, ValueEnum};
 use config::Config;
 use error::Result;
-use portmap::{MappingStrategy, PortMapping};
+use portmap::MappingStrategy;
 use qbit::QbitClient;
 use reqwest::Url;
 use std::path::PathBuf;
 use tokio::{signal, time};
-use tracing::{error, info};
+use tracing::info;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -112,7 +112,7 @@ fn determine_strategy(opt: StrategyOpt, config: &Config) -> EffectiveStrategy {
     }
 }
 
-fn prefer_file_strategy(config: &Config) -> bool {
+fn prefer_file_strategy(_config: &Config) -> bool {
     #[cfg(target_os = "linux")]
     {
         if let Some(path) = config.resolved_forwarded_port_path() {
@@ -140,7 +140,8 @@ fn init_tracing(verbose: u8) -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| filter.into()),
         )
         .with_target(false)
-        .try_init()?;
+        .try_init()
+        .map_err(|e| anyhow::anyhow!("failed to initialize tracing: {}", e))?;
 
     Ok(())
 }

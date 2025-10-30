@@ -2,7 +2,7 @@ use crate::{
     config::{PortMapConfig, PortProtocol},
     error::{PortMapError, Result},
 };
-use anyhow::{anyhow, bail, Context};
+use anyhow::Context;
 use std::{net::IpAddr, str::FromStr, time::Duration};
 use tracing::{info, warn};
 
@@ -114,7 +114,7 @@ fn build_request(config: &PortMapConfig) -> Result<PortMapRequest> {
 
 fn autodiscover_gateway() -> Result<IpAddr> {
     match default_net::get_default_gateway() {
-        Ok(gateway) => Ok(gateway.ip),
+        Ok(gateway) => Ok(gateway.ip_addr),
         Err(err) => anyhow::bail!("failed to autodiscover gateway: {err}"),
     }
 }

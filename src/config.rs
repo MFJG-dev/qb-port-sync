@@ -1,12 +1,10 @@
 use crate::error::{ConfigError, Result};
-use directories::BaseDirs;
 use serde::Deserialize;
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
 use tracing::debug;
-use users::get_current_uid;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -103,7 +101,8 @@ impl Config {
         if let Some(path) = self.protonvpn.forwarded_port_path.as_mut() {
             if path.is_relative() {
                 if let Some(source) = self.source.as_ref().and_then(|p| p.parent()) {
-                    *path = source.join(path);
+                    let relative_path = path.clone();
+                    *path = source.join(relative_path);
                 }
             }
         }
@@ -131,9 +130,9 @@ fn find_config(cli_path: Option<PathBuf>) -> Result<PathBuf> {
 
     let mut candidates = Vec::new();
 
-    #[cfg(target_os = "linux")]
+#[cfg(target_os = "linux")]
     {
-        if let Some(base) = BaseDirs::new() {
+        if let Some(base) = directories::BaseDirs::new() {
             let xdg = base.config_dir().join("qb-port-sync").join("config.toml");
             candidates.push(xdg);
         }
@@ -165,7 +164,7 @@ fn linux_default_forwarded_port_path() -> Option<PathBuf> {
         return Some(path);
     }
 
-    let uid = get_current_uid();
+    let uid = users::get_current_uid();
     let path = PathBuf::from(format!(
         "/run/user/{uid}/Proton/VPN/forwarded_port",
         uid = uid

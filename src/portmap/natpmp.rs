@@ -4,25 +4,25 @@ use crate::{
     error::{PortMapError, Result},
 };
 use anyhow::anyhow;
-use crab_nat::{self, InternetProtocol, PortMappingOptions};
-use std::{convert::TryFrom, num::NonZeroU16, time::Duration};
+use crab_nat::{self, InternetProtocol};
+use std::convert::TryFrom;
 use tracing::warn;
 
 pub async fn try_map(request: &PortMapRequest) -> Result<PortMapping> {
     let protocol = select_protocol(request.protocol);
-    let internal_port = NonZeroU16::new(request.internal_port)
-        .ok_or_else(|| anyhow!("internal port must be non-zero"))?;
-    let options = PortMappingOptions {
-        external_port: request.preferred_external_port.and_then(NonZeroU16::new),
-        lifetime_seconds: Some(u32::try_from(request.refresh_secs).unwrap_or(u32::MAX)),
-        timeout_config: None,
-    };
+    let lifetime_seconds = Some(u32::try_from(request.refresh_secs).unwrap_or(u32::MAX));
 
     warn_if_protocol_mismatch(request.protocol);
 
-    let mapping = crab_nat::natpmp::port_mapping(request.gateway, protocol, internal_port, options)
-        .await
-        .map_err(|err| anyhow!(PortMapError::NatPmp(err.to_string())))?;
+    let mapping = crab_nat::natpmp::try_port_mapping(
+        request.gateway,
+        protocol,
+        request.internal_port,
+        request.preferred_external_port,
+        lifetime_seconds,
+    )
+    .await
+    .map_err(|err| anyhow!(PortMapError::NatPmp(err.to_string())))?;
 
     Ok(convert_mapping(mapping))
 }
@@ -41,15 +41,15 @@ fn warn_if_protocol_mismatch(protocol: PortProtocol) {
 }
 
 fn convert_mapping(mapping: crab_nat::PortMapping) -> PortMapping {
-    let ttl = if mapping.lifetime() == 0 {
+    let ttl = if mapping.lifetime.as_secs() == 0 {
         None
     } else {
-        Some(Duration::from_secs(u64::from(mapping.lifetime())))
+        Some(mapping.lifetime)
     };
 
     PortMapping {
-        external_port: mapping.external_port().get(),
-        internal_port: mapping.internal_port().get(),
+        external_port: mapping.external_port,
+        internal_port: mapping.internal_port,
         ttl,
     }
 }
