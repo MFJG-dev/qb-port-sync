@@ -45,6 +45,7 @@ pub struct PortMapConfig {
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
+#[allow(clippy::upper_case_acronyms)]
 pub enum PortProtocol {
     TCP,
     UDP,
@@ -61,6 +62,7 @@ impl Config {
         Ok(cfg)
     }
 
+    #[allow(dead_code)]
     pub fn source_path(&self) -> Option<&Path> {
         self.source.as_deref()
     }
@@ -130,7 +132,7 @@ fn find_config(cli_path: Option<PathBuf>) -> Result<PathBuf> {
 
     let mut candidates = Vec::new();
 
-#[cfg(target_os = "linux")]
+    #[cfg(target_os = "linux")]
     {
         if let Some(base) = directories::BaseDirs::new() {
             let xdg = base.config_dir().join("qb-port-sync").join("config.toml");

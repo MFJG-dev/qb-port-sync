@@ -13,6 +13,7 @@ pub enum ConfigError {
     #[error("missing qbittorrent password (set in config or QB_PORT_SYNC_QB_PASSWORD)")]
     MissingQbPassword,
     #[error("invalid forwarded port value: {0}")]
+    #[allow(dead_code)]
     InvalidForwardedPort(String),
 }
 

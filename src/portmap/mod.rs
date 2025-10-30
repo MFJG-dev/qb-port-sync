@@ -12,6 +12,7 @@ mod pcp;
 #[derive(Debug, Clone)]
 pub struct PortMapping {
     pub external_port: u16,
+    #[allow(dead_code)]
     pub internal_port: u16,
     pub ttl: Option<Duration>,
 }

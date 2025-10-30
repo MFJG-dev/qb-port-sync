@@ -1,11 +1,7 @@
 use crate::{config::Config, error::Result, qbit::QbitClient};
 use anyhow::{anyhow, Context};
 use notify::{Config as NotifyConfig, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::{
-    fs,
-    path::Path,
-    time::Duration,
-};
+use std::{fs, path::Path, time::Duration};
 use tokio::{sync::mpsc, time};
 use tracing::{debug, info, warn};
 
