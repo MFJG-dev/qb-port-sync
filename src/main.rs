@@ -112,7 +112,7 @@ fn determine_strategy(opt: StrategyOpt, config: &Config) -> EffectiveStrategy {
     }
 }
 
-fn prefer_file_strategy(_config: &Config) -> bool {
+fn prefer_file_strategy(config: &Config) -> bool {
     #[cfg(target_os = "linux")]
     {
         if let Some(path) = config.resolved_forwarded_port_path() {
@@ -124,6 +124,9 @@ fn prefer_file_strategy(_config: &Config) -> bool {
             }
         }
     }
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = config;
 
     false
 }
