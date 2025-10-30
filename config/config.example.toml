@@ -1,0 +1,18 @@
+# qb-port-sync configuration example
+
+[qbittorrent]
+base_url = "http://127.0.0.1:8080"
+username = "admin"
+# If password is blank, QB_PORT_SYNC_QB_PASSWORD will be used at runtime.
+password = ""
+
+[protonvpn]
+# Linux default resolves to /run/user/$UID/Proton/VPN/forwarded_port when empty
+forwarded_port_path = ""
+
+[portmap]
+internal_port = 0
+protocol = "TCP"
+refresh_secs = 300
+autodiscover_gateway = true
+gateway = ""

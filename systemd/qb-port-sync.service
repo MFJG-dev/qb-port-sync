@@ -1,0 +1,23 @@
+[Unit]
+Description=Sync qBittorrent listen port with ProtonVPN forwarded port
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qbportsync
+Group=qbportsync
+EnvironmentFile=-/etc/default/qb-port-sync
+ExecStart=/usr/local/bin/qb-port-sync --config /etc/qb-port-sync/config.toml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+WorkingDirectory=/usr/local/bin
+
+[Install]
+WantedBy=multi-user.target

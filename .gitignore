@@ -1,0 +1,7 @@
+target/
+**/*.rs.bk
+**/*.swp
+Cargo.lock
+/.config/
+/.env.local
+.DS_Store
