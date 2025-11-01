@@ -1,0 +1,17 @@
+[Unit]
+Description=Apply ProtonVPN forwarded port to qBittorrent (oneshot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/qb-port-sync --once --strategy file --config /etc/qb-port-sync/config.toml
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

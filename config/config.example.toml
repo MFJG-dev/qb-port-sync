@@ -12,7 +12,21 @@ forwarded_port_path = ""
 
 [portmap]
 internal_port = 0
-protocol = "TCP"
+protocol = "BOTH"
 refresh_secs = 300
 autodiscover_gateway = true
 gateway = ""
+
+[net]
+# Optional interface binding for qBittorrent (e.g., "tun0", "utun5")
+bind_interface = ""
+
+[metrics]
+# Enable Prometheus metrics endpoint at /metrics
+enabled = false
+port = 0  # Set to non-zero to enable (e.g., 9000)
+
+[health]
+# Enable health check endpoint at /healthz
+enabled = false
+port = 0  # Set to non-zero to enable, or 0 to use metrics port

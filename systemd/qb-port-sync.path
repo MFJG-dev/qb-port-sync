@@ -1,0 +1,9 @@
+[Unit]
+Description=Trigger qb-port-sync when ProtonVPN forwarded port updates
+
+[Path]
+PathChanged=%t/Proton/VPN/forwarded_port
+Unit=qb-port-sync-oneshot.service
+
+[Install]
+WantedBy=default.target

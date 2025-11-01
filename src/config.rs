@@ -1,4 +1,6 @@
 use crate::error::{ConfigError, Result};
+#[cfg(target_os = "linux")]
+use directories::BaseDirs;
 use serde::Deserialize;
 use std::{
     env, fs,
@@ -11,6 +13,12 @@ pub struct Config {
     pub qbittorrent: QbittorrentConfig,
     pub protonvpn: ProtonVpnConfig,
     pub portmap: PortMapConfig,
+    #[serde(default)]
+    pub net: NetConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
+    #[serde(default)]
+    pub health: HealthConfig,
     #[serde(skip)]
     source: Option<PathBuf>,
 }
@@ -23,7 +31,7 @@ pub struct QbittorrentConfig {
     pub password: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct ProtonVpnConfig {
     #[serde(default, deserialize_with = "empty_string_as_none_path")]
     pub forwarded_port_path: Option<PathBuf>,
@@ -43,7 +51,29 @@ pub struct PortMapConfig {
     pub gateway: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct NetConfig {
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub bind_interface: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct MetricsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct HealthConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]
 #[allow(clippy::upper_case_acronyms)]
 pub enum PortProtocol {
@@ -84,6 +114,10 @@ impl Config {
         Err(ConfigError::MissingQbPassword.into())
     }
 
+    pub fn bind_interface(&self) -> Option<&str> {
+        self.net.bind_interface.as_deref()
+    }
+
     pub fn resolved_forwarded_port_path(&self) -> Option<PathBuf> {
         if let Some(path) = self.protonvpn.forwarded_port_path.clone() {
             return Some(path);
@@ -91,9 +125,7 @@ impl Config {
 
         #[cfg(target_os = "linux")]
         {
-            if let Some(path) = linux_default_forwarded_port_path() {
-                return Some(path);
-            }
+            return Some(linux_default_forwarded_port_path());
         }
 
         None
@@ -103,8 +135,10 @@ impl Config {
         if let Some(path) = self.protonvpn.forwarded_port_path.as_mut() {
             if path.is_relative() {
                 if let Some(source) = self.source.as_ref().and_then(|p| p.parent()) {
-                    let relative_path = path.clone();
-                    *path = source.join(relative_path);
+                    {
+                        let relative = path.clone();
+                        *path = source.join(relative);
+                    }
                 }
             }
         }
@@ -113,7 +147,7 @@ impl Config {
 
 impl PortMapConfig {
     const fn default_protocol() -> PortProtocol {
-        PortProtocol::TCP
+        PortProtocol::BOTH
     }
 
     const fn default_refresh_secs() -> u64 {
@@ -134,7 +168,7 @@ fn find_config(cli_path: Option<PathBuf>) -> Result<PathBuf> {
 
     #[cfg(target_os = "linux")]
     {
-        if let Some(base) = directories::BaseDirs::new() {
+        if let Some(base) = BaseDirs::new() {
             let xdg = base.config_dir().join("qb-port-sync").join("config.toml");
             candidates.push(xdg);
         }
@@ -159,19 +193,18 @@ fn find_config(cli_path: Option<PathBuf>) -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn linux_default_forwarded_port_path() -> Option<PathBuf> {
+fn linux_default_forwarded_port_path() -> PathBuf {
     if let Some(runtime_dir) = env::var_os("XDG_RUNTIME_DIR") {
         let mut path = PathBuf::from(runtime_dir);
         path.push("Proton/VPN/forwarded_port");
-        return Some(path);
+        return path;
     }
 
     let uid = users::get_current_uid();
-    let path = PathBuf::from(format!(
+    PathBuf::from(format!(
         "/run/user/{uid}/Proton/VPN/forwarded_port",
         uid = uid
-    ));
-    Some(path)
+    ))
 }
 
 fn empty_string_as_none<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>

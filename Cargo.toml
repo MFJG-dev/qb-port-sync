@@ -5,8 +5,8 @@ edition = "2021"
 authors = ["qb-port-sync maintainers"]
 license = "MIT"
 description = "Keeps qBittorrent's listening port synchronized with ProtonVPN forwarded ports using file watching and PCP/NAT-PMP."
-homepage = "https://github.com/example/qb-port-sync"
-repository = "https://github.com/example/qb-port-sync"
+homepage = "https://github.com/MFJG-dev/qb-port-sync"
+repository = "https://github.com/MFJG-dev/qb-port-sync"
 keywords = ["qbittorrent", "protonvpn", "port-forwarding", "daemon"]
 categories = ["network-programming", "command-line-utilities"]
 
@@ -24,9 +24,27 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 directories = "5"
 default-net = "0.8"
-crab_nat = "0.1"
+natpmp = "0.5"
 users = "0.11"
 rand = { version = "0.8", features = ["std", "small_rng"] }
+serde_with = "3"
+tracing-journald = { version = "0.3", optional = true }
+metrics = { version = "0.24", optional = true }
+metrics-exporter-prometheus = { version = "0.17", features = ["http-listener"], optional = true }
+hyper = { version = "1.1", features = ["server", "http1"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+
+[dependencies.crab_nat]
+version = "0.7"
+optional = true
+
+[features]
+default = []
+pcp = ["crab_nat"]
+journald = ["tracing-journald"]
+metrics = ["dep:metrics", "metrics-exporter-prometheus", "hyper", "http-body-util", "hyper-util"]
 
 [dev-dependencies]
 tempfile = "3"
+serde_json = "1"

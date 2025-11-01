@@ -1,6 +1,8 @@
 use crate::error::{QbitError, Result};
 use reqwest::{header, Client, Url};
 use serde::Deserialize;
+use serde_json::{json, Map, Value};
+use std::convert::TryFrom;
 use std::time::Duration;
 use tracing::{debug, info, warn};
 
@@ -10,9 +12,21 @@ pub struct QbitClient {
     base_url: Url,
 }
 
+#[derive(Debug)]
+pub struct PortUpdateResult {
+    pub detected_port: u16,
+    pub verified: bool,
+    pub random_port: Option<bool>,
+    pub upnp: Option<bool>,
+}
+
 #[derive(Debug, Deserialize)]
-pub struct Preferences {
-    pub listen_port: u16,
+struct NetworkInterfaceItem {
+    name: String,
+    #[serde(default)]
+    interface: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
 }
 
 impl QbitClient {
@@ -22,27 +36,28 @@ impl QbitClient {
         }
 
         let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::REFERER,
-            header::HeaderValue::from_str(base_url.as_str())?,
-        );
+        let referer = header::HeaderValue::from_str(base_url.as_str())?;
+        headers.insert(header::REFERER, referer);
+        let origin_string = origin_from_url(&base_url);
+        let origin = header::HeaderValue::from_str(&origin_string)?;
+        headers.insert(header::ORIGIN, origin);
 
         let client = Client::builder()
             .default_headers(headers)
             .cookie_store(true)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(15))
             .user_agent("qb-port-sync")
             .build()?;
 
         Ok(Self { client, base_url })
     }
 
-    pub async fn login(&self, username: &str, password: &str) -> Result<()> {
+    pub async fn login(&self, user: &str, pass: &str) -> Result<()> {
         let url = self.endpoint("api/v2/auth/login")?;
         let response = self
             .client
             .post(url)
-            .form(&[("username", username), ("password", password)])
+            .form(&[("username", user), ("password", pass)])
             .send()
             .await?;
 
@@ -65,9 +80,69 @@ impl QbitClient {
         Ok(())
     }
 
-    pub async fn set_listen_port(&self, port: u16) -> Result<()> {
+    pub async fn set_listen_port(
+        &self,
+        port: u16,
+        bind_interface: Option<&str>,
+    ) -> Result<PortUpdateResult> {
+        let mut payload = Map::new();
+        payload.insert("listen_port".to_string(), json!(port));
+        payload.insert("random_port".into(), Value::Bool(false));
+        payload.insert("upnp".into(), Value::Bool(false));
+
+        if let Some(interface) = bind_interface.map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(selection) = self.resolve_interface(interface).await? {
+                payload.insert("network_interface".into(), Value::String(selection.name));
+                if let Some(id) = selection.id {
+                    payload.insert("network_interface_id".into(), Value::String(id));
+                }
+            } else {
+                warn!("requested bind interface '{}' not found on qBittorrent; continuing without binding", interface);
+            }
+        }
+
+        self.post_preferences(payload).await?;
+        let prefs = self.get_preferences().await?;
+        let detected_port = prefs
+            .get("listen_port")
+            .and_then(Value::as_u64)
+            .and_then(|v| u16::try_from(v).ok())
+            .ok_or_else(|| anyhow::anyhow!("qBittorrent preferences missing listen_port"))?;
+        let random_port = prefs.get("random_port").and_then(Value::as_bool);
+        let upnp = prefs.get("upnp").and_then(Value::as_bool);
+
+        let verified = detected_port == port;
+        if verified {
+            info!("qBittorrent listen port verified at {}", detected_port);
+        } else {
+            warn!(
+                "qBittorrent listen port mismatch after update: expected {}, reported {}",
+                port, detected_port
+            );
+        }
+
+        Ok(PortUpdateResult {
+            detected_port,
+            verified,
+            random_port,
+            upnp,
+        })
+    }
+
+    pub async fn get_preferences(&self) -> Result<Value> {
+        let url = self.endpoint("api/v2/app/preferences")?;
+        let response = self.client.get(url).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            let message = response.text().await.unwrap_or_default();
+            return Err(QbitError::UnexpectedResponse { status, message }.into());
+        }
+        let value = response.json::<Value>().await?;
+        Ok(value)
+    }
+
+    async fn post_preferences(&self, payload: Map<String, Value>) -> Result<()> {
         let url = self.endpoint("api/v2/app/setPreferences")?;
-        let json_payload = build_port_payload(port);
         let response = self
             .client
             .post(url)
@@ -75,7 +150,7 @@ impl QbitClient {
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("application/x-www-form-urlencoded"),
             )
-            .form(&[("json", json_payload)])
+            .form(&[("json", Value::Object(payload).to_string())])
             .send()
             .await?;
 
@@ -85,36 +160,41 @@ impl QbitClient {
             return Err(QbitError::UnexpectedResponse { status, message }.into());
         }
 
-        debug!("requested qBittorrent to update listen port to {}", port);
+        debug!("submitted qBittorrent preference update");
         Ok(())
     }
 
-    pub async fn update_listen_port(&self, port: u16) -> Result<()> {
-        self.set_listen_port(port).await?;
-        let prefs = self.get_preferences().await?;
-        if prefs.listen_port != port {
-            warn!(
-                "qBittorrent listen port mismatch after update: expected {}, got {}",
-                port, prefs.listen_port
-            );
-        } else {
-            info!("qBittorrent listen port confirmed at {}", port);
+    async fn resolve_interface(&self, requested: &str) -> Result<Option<InterfaceSelection>> {
+        let items = match self.fetch_interfaces().await {
+            Ok(items) => items,
+            Err(err) => {
+                warn!("failed to fetch qBittorrent network interfaces: {err:?}");
+                return Ok(None);
+            }
+        };
+        let matches: Vec<NetworkInterfaceItem> = items
+            .into_iter()
+            .filter(|item| matches_interface(item, requested))
+            .collect();
+        if let Some(item) = matches.first() {
+            return Ok(Some(InterfaceSelection {
+                name: item.name.clone(),
+                id: item.id.clone().or_else(|| item.interface.clone()),
+            }));
         }
-        Ok(())
+        Ok(None)
     }
 
-    pub async fn get_preferences(&self) -> Result<Preferences> {
-        let url = self.endpoint("api/v2/app/preferences")?;
+    async fn fetch_interfaces(&self) -> Result<Vec<NetworkInterfaceItem>> {
+        let url = self.endpoint("api/v2/app/networkInterfaceList")?;
         let response = self.client.get(url).send().await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
+        let status = response.status();
+        if !status.is_success() {
             let message = response.text().await.unwrap_or_default();
             return Err(QbitError::UnexpectedResponse { status, message }.into());
         }
-
-        let prefs = response.json::<Preferences>().await?;
-        Ok(prefs)
+        let list = response.json::<Vec<NetworkInterfaceItem>>().await?;
+        Ok(list)
     }
 
     fn endpoint(&self, path: &str) -> Result<Url> {
@@ -124,16 +204,47 @@ impl QbitClient {
     }
 }
 
-fn build_port_payload(port: u16) -> String {
-    serde_json::json!({ "listen_port": port }).to_string()
+fn matches_interface(item: &NetworkInterfaceItem, requested: &str) -> bool {
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return false;
+    }
+    item.name == requested
+        || item
+            .interface
+            .as_deref()
+            .map(|iface| iface == requested)
+            .unwrap_or(false)
+        || item
+            .id
+            .as_deref()
+            .map(|id| id == requested)
+            .unwrap_or(false)
+}
+
+fn origin_from_url(url: &Url) -> String {
+    url.origin().unicode_serialization()
+}
+
+struct InterfaceSelection {
+    name: String,
+    id: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::build_port_payload;
+    use super::matches_interface;
+    use super::NetworkInterfaceItem;
 
     #[test]
-    fn payload_encodes_listen_port() {
-        assert_eq!(build_port_payload(12345), "{\"listen_port\":12345}");
+    fn interface_match_handles_aliases() {
+        let item = NetworkInterfaceItem {
+            name: "tun0".into(),
+            interface: Some("tun0".into()),
+            id: Some("{1234}".into()),
+        };
+        assert!(matches_interface(&item, "tun0"));
+        assert!(matches_interface(&item, "{1234}"));
+        assert!(!matches_interface(&item, "eth0"));
     }
 }
